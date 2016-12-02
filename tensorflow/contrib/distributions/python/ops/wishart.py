@@ -22,6 +22,7 @@ import math
 import numpy as np
 
 from tensorflow.contrib.distributions.python.ops import distribution
+from tensorflow.contrib.distributions.python.ops import distribution_util
 from tensorflow.contrib.distributions.python.ops import operator_pd_cholesky
 from tensorflow.contrib.distributions.python.ops import operator_pd_full
 from tensorflow.contrib.framework.python.framework import tensor_util as contrib_tensor_util
@@ -99,6 +100,8 @@ class _WishartOperatorPD(distribution.Distribution):
       TypeError: if scale.dtype != df.dtype
       ValueError: if df < k, where scale operator event shape is `(k, k)`
     """
+    parameters = locals()
+    parameters.pop("self")
     self._cholesky_input_output_matrices = cholesky_input_output_matrices
     with ops.name_scope(name) as ns:
       with ops.name_scope("init", values=[df, scale_operator_pd]):
@@ -137,16 +140,16 @@ class _WishartOperatorPD(distribution.Distribution):
                        "dimension of scale matrix (scale.dimension = %s)" %
                        (self._dimension, self._df)))
           self._df = control_flow_ops.with_dependencies([assertions], self._df)
-        super(_WishartOperatorPD, self).__init__(
-            dtype=self._scale_operator_pd.dtype,
-            parameters={"df": self._df,
-                        "scale_operator_pd": self._scale_operator_pd,
-                        "dimension": self._dimension},
-            validate_args=validate_args,
-            allow_nan_stats=allow_nan_stats,
-            is_continuous=True,
-            is_reparameterized=True,
-            name=ns)
+    super(_WishartOperatorPD, self).__init__(
+        dtype=self._scale_operator_pd.dtype,
+        validate_args=validate_args,
+        allow_nan_stats=allow_nan_stats,
+        is_continuous=True,
+        is_reparameterized=True,
+        parameters=parameters,
+        graph_parents=([self._df, self._dimension] +
+                       self._scale_operator_pd.inputs),
+        name=ns)
 
   @property
   def df(self):
@@ -211,13 +214,14 @@ class _WishartOperatorPD(distribution.Distribution):
                                     0.5 * self.df, self.dimension),
                                 beta=0.5,
                                 dtype=self.dtype,
-                                seed=seed)
+                                seed=distribution_util.gen_new_seed(
+                                    seed, "wishart"))
 
     # Complexity: O(nbk^2)
-    x = array_ops.batch_matrix_band_part(x, -1, 0)  # Tri-lower.
+    x = array_ops.matrix_band_part(x, -1, 0)  # Tri-lower.
 
     # Complexity: O(nbk)
-    x = array_ops.batch_matrix_set_diag(x, math_ops.sqrt(g))
+    x = array_ops.matrix_set_diag(x, math_ops.sqrt(g))
 
     # Make batch-op ready.
     # Complexity: O(nbk^2)
@@ -241,7 +245,7 @@ class _WishartOperatorPD(distribution.Distribution):
 
     if not self.cholesky_input_output_matrices:
       # Complexity: O(nbk^3)
-      x = math_ops.batch_matmul(x, x, adj_y=True)
+      x = math_ops.matmul(x, x, adjoint_b=True)
 
     return x
 
@@ -309,7 +313,7 @@ class _WishartOperatorPD(distribution.Distribution):
 
     # Complexity: O(nbk)
     half_log_det_x = math_ops.reduce_sum(
-        math_ops.log(array_ops.batch_matrix_diag_part(x_sqrt)),
+        math_ops.log(array_ops.matrix_diag_part(x_sqrt)),
         reduction_indices=[-1])
 
     # Complexity: O(nbk^2)
@@ -348,8 +352,8 @@ class _WishartOperatorPD(distribution.Distribution):
 
   def _variance(self):
     x = math_ops.sqrt(self.df) * self.scale_operator_pd.to_dense()
-    d = array_ops.expand_dims(array_ops.batch_matrix_diag_part(x), -1)
-    v = math_ops.square(x) + math_ops.batch_matmul(d, d, adj_y=True)
+    d = array_ops.expand_dims(array_ops.matrix_diag_part(x), -1)
+    v = math_ops.square(x) + math_ops.matmul(d, d, adjoint_b=True)
     if self.cholesky_input_output_matrices:
       return linalg_ops.cholesky(v)
     return v
@@ -363,7 +367,7 @@ class _WishartOperatorPD(distribution.Distribution):
 
   def _mode(self):
     s = self.df - self.dimension - 1.
-    s = math_ops.select(
+    s = array_ops.where(
         math_ops.less(s, 0.),
         constant_op.constant(float("NaN"), dtype=self.dtype, name="nan"),
         s)
@@ -469,7 +473,7 @@ class WishartCholesky(_WishartOperatorPD):
   dist.pdf(x)  # Shape is [2, 2].
 
   # (*) - To efficiently create a trainable covariance matrix, see the example
-  #   in tf.contrib.distributions.batch_matrix_diag_transform.
+  #   in tf.contrib.distributions.matrix_diag_transform.
   ```
 
   """
@@ -502,14 +506,18 @@ class WishartCholesky(_WishartOperatorPD):
         undefined statistics will return `NaN` for this statistic.
       name: The name scope to give class member ops.
     """
-    super(WishartCholesky, self).__init__(
-        df=df,
-        scale_operator_pd=operator_pd_cholesky.OperatorPDCholesky(
-            scale, verify_pd=validate_args),
-        cholesky_input_output_matrices=cholesky_input_output_matrices,
-        validate_args=validate_args,
-        allow_nan_stats=allow_nan_stats,
-        name=name)
+    parameters = locals()
+    parameters.pop("self")
+    with ops.name_scope(name, values=[scale]) as ns:
+      super(WishartCholesky, self).__init__(
+          df=df,
+          scale_operator_pd=operator_pd_cholesky.OperatorPDCholesky(
+              scale, verify_pd=validate_args),
+          cholesky_input_output_matrices=cholesky_input_output_matrices,
+          validate_args=validate_args,
+          allow_nan_stats=allow_nan_stats,
+          name=ns)
+    self._parameters = parameters
 
 
 class WishartFull(_WishartOperatorPD):
@@ -566,7 +574,7 @@ class WishartFull(_WishartOperatorPD):
   dist.pdf(x)  # Shape is [2, 2].
 
   # (*) - To efficiently create a trainable covariance matrix, see the example
-  #   in tf.contrib.distributions.batch_matrix_diag_transform.
+  #   in tf.contrib.distributions.matrix_diag_transform.
   ```
 
   """
@@ -599,11 +607,15 @@ class WishartFull(_WishartOperatorPD):
         undefined statistics will return `NaN` for this statistic.
       name: The name scope to give class member ops.
     """
-    super(WishartFull, self).__init__(
-        df=df,
-        scale_operator_pd=operator_pd_full.OperatorPDFull(
-            scale, verify_pd=validate_args),
-        cholesky_input_output_matrices=cholesky_input_output_matrices,
-        validate_args=validate_args,
-        allow_nan_stats=allow_nan_stats,
-        name=name)
+    parameters = locals()
+    parameters.pop("self")
+    with ops.name_scope(name, values=[scale]) as ns:
+      super(WishartFull, self).__init__(
+          df=df,
+          scale_operator_pd=operator_pd_full.OperatorPDFull(
+              scale, verify_pd=validate_args),
+          cholesky_input_output_matrices=cholesky_input_output_matrices,
+          validate_args=validate_args,
+          allow_nan_stats=allow_nan_stats,
+          name=ns)
+    self._parameters = parameters

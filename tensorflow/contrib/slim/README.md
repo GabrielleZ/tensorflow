@@ -67,9 +67,7 @@ contains popular network definitions such as
 and
 [AlexNet](https://www.tensorflow.org/code/tensorflow/contrib/slim/python/slim/nets/alexnet.py)
 models.
-* [preprocess](https://www.tensorflow.org/code/tensorflow/contrib/slim/python/slim/preprocess.py):
-is a module with various preprocessing utilities.
-* [queues](https://www.tensorflow.org/code/tensorflow/contrib/slim/queues.py):
+* [queues](https://www.tensorflow.org/code/tensorflow/contrib/slim/python/slim/queues.py):
 provides a context manager for easily and safely starting and closing
 QueueRunners.
 * [regularizers](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/regularizers.py):
@@ -111,7 +109,7 @@ weights = variables.variable('weights',
 Note that in native TensorFlow, there are two types of variables: regular
 variables and local (transient) variables. The vast majority of variables are
 regular variables: once created, they can be saved to disk using a
-[saver](https://www.tensorflow.org/versions/r0.9/api_docs/python/state_ops.html#Saver).
+[saver](https://www.tensorflow.org/versions/r0.11/api_docs/python/state_ops.html#Saver).
 Local variables are those variables that only exist for the duration of a
 session and are not saved to disk.
 
@@ -217,7 +215,7 @@ Dropout| [slim.dropout](https://www.tensorflow.org/code/tensorflow/contrib/layer
 Flatten | [slim.flatten](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
 MaxPool2D | [slim.max_pool2d](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
 OneHotEncoding | [slim.one_hot_encoding](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
-SeperableConv2 | [slim.seperable_conv2d](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
+SeparableConv2 | [slim.separable_conv2d](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
 UnitNorm | [slim.unit_norm](https://www.tensorflow.org/code/tensorflow/contrib/layers/python/layers/layers.py)
 
 TF-Slim also provides two meta-operations called `repeat` and `stack` that
@@ -503,7 +501,7 @@ pose_loss = MyCustomLossFunction(pose_predictions, pose_labels)
 slim.losses.add_loss(pose_loss) # Letting TF-Slim know about the additional loss.
 
 # The following two ways to compute the total loss are equivalent:
-regularization_loss = tf.add_n(slim.get_regularization_losses())
+regularization_loss = tf.add_n(slim.losses.get_regularization_losses())
 total_loss1 = classification_loss + sum_of_squares_loss + pose_loss + regularization_loss
 
 # (Regularization Loss is included in the total loss by default).
@@ -583,7 +581,7 @@ with g.as_default():
   slim.losses.softmax_cross_entropy(predictions, labels)
 
   total_loss = slim.losses.get_total_loss()
-  tf.scalar_summary('losses/total loss', total_loss)
+  tf.summary.scalar('losses/total loss', total_loss)
 
   # Specify the optimization scheme:
   optimizer = tf.train.GradientDescentOptimizer(learning_rate=.001)
@@ -729,7 +727,7 @@ log_dir = '/path/to/my_pascal_model_dir/'
 
 # Restore only the convolutional layers:
 variables_to_restore = slim.get_variables_to_restore(exclude=['fc6', 'fc7', 'fc8'])
-init_fn = assign_from_checkpoint_fn(model_path, var_list):
+init_fn = assign_from_checkpoint_fn(model_path, variables_to_restore)
 
 # Start training.
 slim.learning.train(train_op, log_dir, init_fn=init_fn)
@@ -833,8 +831,8 @@ names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
 num_batches = 1000
 
 with tf.Session() as sess:
-  sess.run(tf.initialize_all_variables())
-  sess.run(tf.initialize_local_variables())
+  sess.run(tf.global_variables_initializer())
+  sess.run(tf.local_variables_initializer())
 
   for batch_id in range(num_batches):
     sess.run(names_to_updates.values())
@@ -884,7 +882,7 @@ names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
 # Create the summary ops such that they also print out to std output:
 summary_ops = []
 for metric_name, metric_value in metrics_to_values.iteritems():
-  op = tf.scalar_summary(metric_name, metric_value)
+  op = tf.summary.scalar(metric_name, metric_value)
   op = tf.Print(op, [metric_value], metric_name)
   summary_ops.append(op)
 

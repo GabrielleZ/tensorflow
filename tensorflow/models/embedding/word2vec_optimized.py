@@ -126,6 +126,8 @@ class Options(object):
 
     # Where to write out summaries.
     self.save_path = FLAGS.save_path
+    if not os.path.exists(self.save_path):
+      os.makedirs(self.save_path)
 
     # Eval options.
 
@@ -296,7 +298,7 @@ class Word2Vec(object):
     self._nearby_idx = nearby_idx
 
     # Properly initialize all variables.
-    tf.initialize_all_variables().run()
+    tf.global_variables_initializer().run()
 
     self.saver = tf.train.Saver()
 
@@ -353,9 +355,9 @@ class Word2Vec(object):
     correct = 0
 
     try:
-        total = self._analogy_questions.shape[0]
+      total = self._analogy_questions.shape[0]
     except AttributeError as e:
-        raise AttributeError("Need to read analogy questions.")
+      raise AttributeError("Need to read analogy questions.")
 
     start = 0
     while start < total:

@@ -106,26 +106,12 @@ filegroup(
 
 cc_library(
     name = "session_bundle",
-    srcs = ["session_bundle.cc"],
     hdrs = ["session_bundle.h"],
-    copts = if_ios(["-DGOOGLE_LOGGING"]),
     visibility = ["//visibility:public"],
     deps = [
+        ":session_bundle_lite",
         ":signature",
-    ] + if_not_mobile([
-        ":manifest_proto_cc",
-        "//tensorflow/core:core_cpu",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:protos_all_cc",
-    ]) + if_mobile([
-        ":manifest_portable_proto",
-        "//tensorflow/core:meta_graph_portable_proto",
-    ]) + if_android([
-        "//tensorflow/core:android_lib_lite",
-    ]) + if_ios([
-        "//tensorflow/core:ios_tensorflow_lib",
-    ]),
+    ],
 )
 
 # This is a lite version of the session_bundle target that does not link in any
@@ -145,13 +131,8 @@ cc_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
-    ]) + if_mobile([
-        ":manifest_portable_proto",
-        "//tensorflow/core:meta_graph_portable_proto",
-    ]) + if_android([
-        "//tensorflow/core:android_lib_lite",
-    ]) + if_ios([
-        "//tensorflow/core:ios_tensorflow_lib",
+        "//tensorflow/core/util/tensor_bundle:naming",
+        # mobile not supported yet
     ]),
 )
 
@@ -210,27 +191,6 @@ py_test(
     ],
 )
 
-cc_library(
-    name = "signature",
-    srcs = ["signature.cc"],
-    hdrs = ["signature.h"],
-    visibility = ["//visibility:public"],
-    deps = if_not_mobile([
-        ":manifest_proto_cc",
-        "//tensorflow/core:core_cpu",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:tensorflow_opensource",
-    ]) + if_mobile([
-        ":manifest_portable_proto",
-        "//tensorflow/core:meta_graph_portable_proto",
-    ]) + if_android([
-        "//tensorflow/core:android_lib_lite",
-    ]) + if_ios([
-        "//tensorflow/core:ios_tensorflow_lib",
-    ]),
-)
-
 # This is a lite version of the signature target that does not link in any
 # Tensorflow ops in order to minimize its size. Clients using this should
 # link any required ops manually.
@@ -244,13 +204,18 @@ cc_library(
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
-    ]) + if_mobile([
-        ":manifest_portable_proto",
-        "//tensorflow/core:meta_graph_portable_proto",
-    ]) + if_android([
-        "//tensorflow/core:android_lib_lite",
-    ]) + if_ios([
-        "//tensorflow/core:ios_tensorflow_lib",
+        # mobile not supported yet
+    ]),
+)
+
+cc_library(
+    name = "signature",
+    hdrs = ["signature.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":signature_lite",
+    ] + if_not_mobile([
+        "//tensorflow/core:tensorflow_opensource",
     ]),
 )
 
@@ -288,6 +253,52 @@ cc_library(
 )
 
 load("//tensorflow/core:platform/default/build_config.bzl", "tf_proto_library")
+
+cc_library(
+    name = "bundle_shim",
+    srcs = ["bundle_shim.cc"],
+    hdrs = ["bundle_shim.h"],
+    copts = if_ios(["-DGOOGLE_LOGGING"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":session_bundle",
+        ":signature",
+        "//tensorflow/cc/saved_model:loader",
+        "//tensorflow/cc/saved_model:signature_constants",
+    ] + if_not_mobile([
+        ":manifest_proto_cc",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+        # mobile not supported yet
+    ]),
+)
+
+cc_test(
+    name = "bundle_shim_test",
+    size = "small",
+    srcs = ["bundle_shim_test.cc"],
+    data = [
+        "//tensorflow/contrib/session_bundle/example:half_plus_two",
+        "//tensorflow/python/saved_model/example:saved_model_half_plus_two_data",
+    ],
+    # Link in all registered kernels.
+    linkstatic = 1,
+    deps = [
+        ":bundle_shim",
+        ":test_util",
+        "//tensorflow/cc/saved_model:loader",
+        "//tensorflow/cc/saved_model:signature_constants",
+        "//tensorflow/cc/saved_model:tag_constants",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core:testlib",
+    ],
+)
 
 tf_proto_library(
     name = "manifest_proto",
